@@ -48,14 +48,18 @@ jobs:
 
       - name: Format Kotlin and export style changes
         run: |
-          ./gradlew :AnkiDroid:ktlintFormat --daemon
+          ./gradlew :AnkiDroid:ktlintFormat --daemon || format_status=$?
           python3 - <<'PY'
           import base64, subprocess
-          patch = subprocess.run(['git', 'diff', '--', 'AnkiDroid/src'], check=True, capture_output=True).stdout
+          patch = subprocess.run(
+              ['git', 'diff', '--', 'AnkiDroid/src', 'AnkiDroid/build.gradle.kts'],
+              check=True, capture_output=True,
+          ).stdout
           encoded = base64.b64encode(patch).decode()
           for index in range(0, len(encoded), 10000):
               print('WHITEBOARD_FORMAT_PATCH ' + encoded[index:index + 10000])
           PY
+          exit "${format_status:-0}"
 
       - name: Check whiteboard persistence and reviewer regressions
         run: >-

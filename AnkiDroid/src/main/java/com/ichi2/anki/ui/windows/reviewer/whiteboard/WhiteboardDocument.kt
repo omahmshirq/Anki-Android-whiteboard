@@ -79,7 +79,8 @@ data class WhiteboardDocument(
             val path = stroke.svgPath(if (stroke.eraser) Color.BLACK else stroke.color)
             if (stroke.eraser) {
                 definitions.append(
-                    """<mask id="e$index" maskUnits="userSpaceOnUse" x="0" y="0" width="$width" height="$height"><rect width="$width" height="$height" fill="white"/>$path</mask>""",
+                    """<mask id="e$index" maskUnits="userSpaceOnUse" x="0" y="0" """ +
+                        """width="$width" height="$height"><rect width="$width" height="$height" fill="white"/>$path</mask>""",
                 )
                 content.addFirst("""<g mask="url(#e$index)">""")
                 content.addLast("</g>")
@@ -87,7 +88,17 @@ data class WhiteboardDocument(
                 content.addLast(path)
             }
         }
-        return """<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" viewBox="0 0 $width $height"><metadata id="ankidroid-whiteboard-v1">$metadata</metadata><defs>$definitions</defs><rect width="$width" height="$height" fill="${background.rgb()}"/>${content.joinToString("")}</svg>"""
+        return buildString {
+            append("""<svg xmlns="http://www.w3.org/2000/svg" """)
+            append("""width="$width" height="$height" viewBox="0 0 $width $height">""")
+            append("""<metadata id="ankidroid-whiteboard-v1">$metadata</metadata>""")
+            append("<defs>")
+            append(definitions)
+            append("</defs>")
+            append("""<rect width="$width" height="$height" fill="${background.rgb()}"/>""")
+            append(content.joinToString(""))
+            append("</svg>")
+        }
     }
 
     private fun Stroke.svgPath(color: Int): String {
@@ -99,7 +110,8 @@ data class WhiteboardDocument(
                 }
             }
         val opacity = Color.alpha(color) / 255.0
-        return """<path d="$data" fill="none" stroke="${color.rgb()}" stroke-opacity="$opacity" stroke-width="$width" stroke-linecap="round" stroke-linejoin="round"/>"""
+        return """<path d="$data" fill="none" stroke="${color.rgb()}" """ +
+            """stroke-opacity="$opacity" stroke-width="$width" stroke-linecap="round" stroke-linejoin="round"/>"""
     }
 
     companion object {

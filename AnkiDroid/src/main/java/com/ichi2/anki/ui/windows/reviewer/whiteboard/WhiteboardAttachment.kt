@@ -8,6 +8,11 @@ package com.ichi2.anki.ui.windows.reviewer.whiteboard
  */
 object WhiteboardAttachment {
     private val filenamePattern = Regex("""anki_whiteboard_[a-f0-9-]+\.svg""")
+    private val imagePattern =
+        Regex(
+            """<img\b[^>]*\ssrc\s*=\s*["'](anki_whiteboard_[a-f0-9-]+\.svg)["'][^>]*>""",
+            RegexOption.IGNORE_CASE,
+        )
 
     fun find(
         fields: List<String>,
@@ -16,7 +21,7 @@ object WhiteboardAttachment {
         val blocks = fields.flatMap { blockPattern(ordinal).findAll(it).toList() }
         require(blocks.size <= 1) { "Multiple saved whiteboards found for this card" }
         return blocks.singleOrNull()?.let { match ->
-            requireNotNull(Regex("""<img\b[^>]*\ssrc\s*=\s*["'](anki_whiteboard_[a-f0-9-]+\.svg)["'][^>]*>""", RegexOption.IGNORE_CASE).find(match.value))
+            requireNotNull(imagePattern.find(match.value))
                 .groupValues[1]
         }
     }
@@ -35,7 +40,8 @@ object WhiteboardAttachment {
         val updated = fields.map { pattern.replace(it, "") }.toMutableList()
         if (filename != null) {
             updated[fieldIndex] +=
-                """<!--ankidroid-whiteboard:$ordinal:start--><div class="ankidroid-whiteboard"><img src="$filename" alt="Saved whiteboard"></div><!--ankidroid-whiteboard:$ordinal:end-->"""
+                """<!--ankidroid-whiteboard:$ordinal:start--><div class="ankidroid-whiteboard">""" +
+                """<img src="$filename" alt="Saved whiteboard"></div><!--ankidroid-whiteboard:$ordinal:end-->"""
         }
         return updated
     }
@@ -44,6 +50,9 @@ object WhiteboardAttachment {
 
     private fun blockPattern(ordinal: Int): Regex {
         require(ordinal >= 0)
-        return Regex("""<!--ankidroid-whiteboard:$ordinal:start-->.*?<!--ankidroid-whiteboard:$ordinal:end-->""", RegexOption.DOT_MATCHES_ALL)
+        return Regex(
+            """<!--ankidroid-whiteboard:$ordinal:start-->.*?<!--ankidroid-whiteboard:$ordinal:end-->""",
+            RegexOption.DOT_MATCHES_ALL,
+        )
     }
 }
