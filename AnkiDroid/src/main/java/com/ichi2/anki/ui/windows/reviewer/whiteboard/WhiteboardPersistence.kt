@@ -36,8 +36,17 @@ data class WhiteboardSaveError(
  * Existing media is never overwritten or deleted, preserving other devices and collection undo.
  */
 object WhiteboardPersistence {
+    private const val UNDO_LABEL = "Save whiteboard"
     private val syncMutex = Mutex()
     val errors = MutableSharedFlow<WhiteboardSaveError>(extraBufferCapacity = 8)
+
+    private data class UndoGroup(
+        val targetKey: String,
+        val anchor: Int,
+        val lastCounter: Int,
+    )
+
+    private var lastUndoGroup: UndoGroup? = null
 
     suspend fun bind(
         card: Card,
@@ -143,7 +152,9 @@ object WhiteboardPersistence {
         withCol {
             require(media.dir.absolutePath == target.mediaDirectory) { "The active collection has changed; the local drawing is safe" }
             val note = getNote(target.noteId)
-            require(note.guId == target.noteGuid && note.noteTypeId == target.notetypeId) { "The note has changed; the local drawing is safe" }
+            require(
+                note.guId == target.noteGuid && note.noteTypeId == target.notetypeId,
+            ) { "The note has changed; the local drawing is safe" }
             val fieldIndex = note.notetype.fieldsNames.indexOf(fieldName)
             require(fieldIndex >= 0) { "The selected field no longer exists; choose a new sync field" }
             val remoteFilename = WhiteboardAttachment.find(note.fields, target.ordinal)
@@ -159,9 +170,24 @@ object WhiteboardPersistence {
             val updated = WhiteboardAttachment.replace(note.fields, target.ordinal, fieldIndex, filename)
             if (updated != note.fields) {
                 note.fields = updated.toMutableList()
-                // Drawing Undo/Redo is handled by the whiteboard, without displacing review Undo.
-                val changes = updateNote(note, skipUndoEntry = true)
-                ChangeManager.publish(changes, initiator)
+                // skipUndoEntry clears Anki's existing undo history. Use normal note edits and
+                // merge only consecutive saves, never an intervening answer, flag or other edit.
+                val status = undoStatus()
+                val previous =
+                    lastUndoGroup?.takeIf {
+                        it.targetKey == target.key &&
+                            it.lastCounter == status.lastStep &&
+                            status.undo == UNDO_LABEL
+                    }
+                val anchor = previous?.anchor ?: addCustomUndoEntry(UNDO_LABEL)
+                try {
+                    val changes = updateNote(note).let { mergeUndoEntries(anchor) }
+                    lastUndoGroup = UndoGroup(target.key, anchor, undoStatus().lastStep)
+                    ChangeManager.publish(changes, initiator)
+                } catch (e: Exception) {
+                    lastUndoGroup = null
+                    throw e
+                }
             }
             store.acknowledge(target, draft.revision, filename)
         }

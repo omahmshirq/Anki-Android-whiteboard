@@ -34,38 +34,41 @@ data class WhiteboardDraft(
 class WhiteboardDraftStore(
     private val directory: File,
 ) {
-    fun read(target: WhiteboardTarget): WhiteboardDraft? = synchronized(diskLock) {
-        val file = file(target)
-        val backup = File(file.baseFile.path + ".bak")
-        if (!file.baseFile.exists() && !backup.exists()) return@synchronized null
-        require(file.baseFile.length() <= WhiteboardDocument.MAX_BYTES && backup.length() <= WhiteboardDocument.MAX_BYTES)
-        val bytes = file.openRead().use { it.readBytes() }
-        val json = JSONObject(String(bytes, Charsets.UTF_8))
-        WhiteboardDraft(
-            WhiteboardDocument.fromJson(json.getJSONObject("document")),
-            json.getLong("revision"),
-            json.optString("syncedFilename").takeIf { it.isNotEmpty() },
-            json.getBoolean("dirty"),
-        )
-    }
+    fun read(target: WhiteboardTarget): WhiteboardDraft? =
+        synchronized(diskLock) {
+            val file = file(target)
+            val backup = File(file.baseFile.path + ".bak")
+            if (!file.baseFile.exists() && !backup.exists()) return@synchronized null
+            require(file.baseFile.length() <= WhiteboardDocument.MAX_BYTES && backup.length() <= WhiteboardDocument.MAX_BYTES)
+            val bytes = file.openRead().use { it.readBytes() }
+            val json = JSONObject(String(bytes, Charsets.UTF_8))
+            WhiteboardDraft(
+                WhiteboardDocument.fromJson(json.getJSONObject("document")),
+                json.getLong("revision"),
+                json.optString("syncedFilename").takeIf { it.isNotEmpty() },
+                json.getBoolean("dirty"),
+            )
+        }
 
     fun save(
         target: WhiteboardTarget,
         document: WhiteboardDocument,
-    ): WhiteboardDraft = synchronized(diskLock) {
-        val previous = read(target)
-        WhiteboardDraft(document, (previous?.revision ?: 0) + 1, previous?.syncedFilename, true)
-            .also { write(target, it) }
-    }
+    ): WhiteboardDraft =
+        synchronized(diskLock) {
+            val previous = read(target)
+            WhiteboardDraft(document, (previous?.revision ?: 0) + 1, previous?.syncedFilename, true)
+                .also { write(target, it) }
+        }
 
     fun restore(
         target: WhiteboardTarget,
         document: WhiteboardDocument,
         filename: String?,
-    ): WhiteboardDraft = synchronized(diskLock) {
-        WhiteboardDraft(document, (read(target)?.revision ?: 0) + 1, filename, false)
-            .also { write(target, it) }
-    }
+    ): WhiteboardDraft =
+        synchronized(diskLock) {
+            WhiteboardDraft(document, (read(target)?.revision ?: 0) + 1, filename, false)
+                .also { write(target, it) }
+        }
 
     fun acknowledge(
         target: WhiteboardTarget,

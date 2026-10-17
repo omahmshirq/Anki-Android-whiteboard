@@ -20,7 +20,12 @@ class WhiteboardDraftStoreTest {
 
     private val target = WhiteboardTarget(1, "guid", 0, 1, listOf("Front", "Back"), "/collection.media")
     private val document =
-        WhiteboardDocument(100, 100, Color.WHITE, listOf(WhiteboardDocument.Stroke(Color.BLACK, 2f, false, listOf(listOf(0f, 0f, 20f, 20f)))))
+        WhiteboardDocument(
+            100,
+            100,
+            Color.WHITE,
+            listOf(WhiteboardDocument.Stroke(Color.BLACK, 2f, false, listOf(listOf(0f, 0f, 20f, 20f)))),
+        )
 
     @Test
     fun survivesReopeningWithoutMixingCardsOrCollections() {

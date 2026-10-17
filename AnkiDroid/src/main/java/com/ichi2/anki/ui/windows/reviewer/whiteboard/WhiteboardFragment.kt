@@ -508,14 +508,15 @@ class WhiteboardFragment :
     fun captureDrawing(background: Int): WhiteboardDocument {
         val matrix = Matrix().apply { setScale(1 / drawingScale, 1 / drawingScale) }
         val bounds = RectF()
-        val actions = viewModel.paths.value.map { action ->
-            val path = Path(action.path).apply { transform(matrix) }
-            path.computeBounds(bounds, true)
-            val strokeWidth = action.strokeWidth / drawingScale
-            canvasWidth = maxOf(canvasWidth, kotlin.math.ceil((bounds.right + strokeWidth).toDouble()).toInt())
-            canvasHeight = maxOf(canvasHeight, kotlin.math.ceil((bounds.bottom + strokeWidth).toDouble()).toInt())
-            action.copy(path = path, strokeWidth = strokeWidth)
-        }
+        val actions =
+            viewModel.paths.value.map { action ->
+                val path = Path(action.path).apply { transform(matrix) }
+                path.computeBounds(bounds, true)
+                val strokeWidth = action.strokeWidth / drawingScale
+                canvasWidth = maxOf(canvasWidth, kotlin.math.ceil((bounds.right + strokeWidth).toDouble()).toInt())
+                canvasHeight = maxOf(canvasHeight, kotlin.math.ceil((bounds.bottom + strokeWidth).toDouble()).toInt())
+                action.copy(path = path, strokeWidth = strokeWidth)
+            }
         return WhiteboardDocument.capture(actions, canvasWidth, canvasHeight, background)
     }
 

@@ -61,12 +61,16 @@ previously synced attachments.
   therefore make subpixel curve changes.
 - Drawings scale uniformly to fit the viewport. Existing geometry is transformed
   back to its document coordinates before saving to avoid repeated rotation shrinkage.
+  Strokes are not anchored to individual words; scrolling or changing a card layout
+  can change their alignment with the text underneath.
 - Completing a clear operation removes this card's generated attachment on the
   next successful save. Whiteboard Undo can restore it while the session remains open.
 - Existing media files are never overwritten or automatically deleted. Old
   revisions may later appear in Anki's unused-media check.
-- Sync attachment writes do not create one collection Undo entry per stroke;
-  drawing Undo/Redo stays in the whiteboard. Undo history starts fresh on card change.
+- Consecutive autosaves for one drawing are grouped into a normal note-edit Undo
+  entry, preserving earlier review Undo history. The reviewer Undo action may first
+  revert the saved-image group. Use the whiteboard toolbar for stroke Undo/Redo;
+  its stroke history starts fresh on card change.
 - If a different saved image is already on the note, autosave refuses to overwrite
   it. The local draft remains. **Save and sync drawings…** explicitly authorizes
   replacing that other version; there is no automatic merge between devices.
@@ -89,5 +93,6 @@ including new cases for:
 - local draft reopening and edits arriving during a sync write;
 - preserving note text and existing media;
 - restoring from a fresh local store, media-reference detection and sync conflicts.
+- preserving earlier Undo entries without merging unrelated collection operations.
 
 The implementation is AI-assisted and intended for this personal fork.

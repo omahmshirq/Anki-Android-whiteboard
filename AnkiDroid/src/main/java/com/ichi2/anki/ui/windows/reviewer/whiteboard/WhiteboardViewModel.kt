@@ -91,6 +91,7 @@ class WhiteboardViewModel(
     BindingProcessor<ReviewerBinding, WhiteboardAction> {
     // State for drawing history and undo/redo
     val paths = MutableStateFlow<List<DrawingAction>>(emptyList())
+
     /** Invoked only for user edits, never for loading another card's drawing. */
     var onContentChanged: ((List<DrawingAction>) -> Unit)? = null
     private val undoStack = MutableStateFlow<List<UndoableAction>>(emptyList())

@@ -19,16 +19,18 @@ import kotlin.test.assertTrue
 class WhiteboardDocumentTest {
     @Test
     fun svgRoundTripPreservesEditableStrokes() {
-        val path = Path().apply {
-            moveTo(10f, 20f)
-            quadTo(20f, 80f, 90f, 90f)
-            moveTo(30f, 30f)
-            lineTo(50f, 50f)
-        }
-        val erase = Path().apply {
-            moveTo(20f, 20f)
-            lineTo(50f, 50f)
-        }
+        val path =
+            Path().apply {
+                moveTo(10f, 20f)
+                quadTo(20f, 80f, 90f, 90f)
+                moveTo(30f, 30f)
+                lineTo(50f, 50f)
+            }
+        val erase =
+            Path().apply {
+                moveTo(20f, 20f)
+                lineTo(50f, 50f)
+            }
         val document =
             WhiteboardDocument.capture(
                 listOf(DrawingAction(path, Color.RED, 4f), DrawingAction(erase, Color.BLACK, 12f, true)),
@@ -50,7 +52,9 @@ class WhiteboardDocumentTest {
     fun restorationPreservesAspectRatio() {
         val document =
             WhiteboardDocument(
-                200, 400, Color.WHITE,
+                200,
+                400,
+                Color.WHITE,
                 listOf(WhiteboardDocument.Stroke(Color.RED, 8f, false, listOf(listOf(0f, 0f, 100f, 200f)))),
             )
         val restored = document.actions(100, 300).single()

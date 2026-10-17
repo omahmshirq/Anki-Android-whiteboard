@@ -627,54 +627,56 @@ class ReviewerFragment :
         whiteboard.setOnScrollByListener { y -> webViewLayout.scrollVerticallyBy(y) }
         // Capture the Deferred before suspending. A later card must never inherit an earlier load.
         val card = viewModel.currentCard
-        whiteboardBindingJob = viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val loaded = WhiteboardPersistence.bind(card.await(), whiteboardDraftStore)
-                awaitWhiteboardLayout(whiteboard.binding.whiteboardView)
-                if (epoch == whiteboardBindingEpoch && whiteboard.view != null) {
-                    activeWhiteboardBinding = loaded
-                    whiteboard.restoreDrawing(loaded.draft?.document)
-                    whiteboard.onDrawingChanged = { persistWhiteboard(whiteboard, loaded.target) }
-                    whiteboard.onSaveAndSync = { chooseWhiteboardSyncField(whiteboard, loaded.target) }
-                    whiteboard.onStopSync = {
-                        WhiteboardPersistence.stopSync(sharedPrefs(), loaded.target)
-                        showSnackbar(R.string.whiteboard_sync_stopped)
+        whiteboardBindingJob =
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    val loaded = WhiteboardPersistence.bind(card.await(), whiteboardDraftStore)
+                    awaitWhiteboardLayout(whiteboard.binding.whiteboardView)
+                    if (epoch == whiteboardBindingEpoch && whiteboard.view != null) {
+                        activeWhiteboardBinding = loaded
+                        whiteboard.restoreDrawing(loaded.draft?.document)
+                        whiteboard.onDrawingChanged = { persistWhiteboard(whiteboard, loaded.target) }
+                        whiteboard.onSaveAndSync = { chooseWhiteboardSyncField(whiteboard, loaded.target) }
+                        whiteboard.onStopSync = {
+                            WhiteboardPersistence.stopSync(sharedPrefs(), loaded.target)
+                            showSnackbar(R.string.whiteboard_sync_stopped)
+                        }
+                        if (loaded.draft?.dirty == true) {
+                            WhiteboardPersistence.enqueue(loaded.target, whiteboardDraftStore, sharedPrefs(), viewModel)
+                        }
                     }
-                    if (loaded.draft?.dirty == true) {
-                        WhiteboardPersistence.enqueue(loaded.target, whiteboardDraftStore, sharedPrefs(), viewModel)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not restore whiteboard")
+                    if (epoch == whiteboardBindingEpoch && view != null) {
+                        showSnackbar(getString(R.string.whiteboard_load_failed, e.localizedMessage ?: "Unknown error"))
                     }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.w(e, "Could not restore whiteboard")
-                if (epoch == whiteboardBindingEpoch && view != null) {
-                    showSnackbar(getString(R.string.whiteboard_load_failed, e.localizedMessage ?: "Unknown error"))
                 }
             }
-        }
     }
 
     private suspend fun awaitWhiteboardLayout(view: View) {
         if (view.isLaidOut && view.width > 0 && view.height > 0) return
         suspendCancellableCoroutine<Unit> { continuation ->
-            val listener = object : View.OnLayoutChangeListener {
-                override fun onLayoutChange(
-                    v: View,
-                    left: Int,
-                    top: Int,
-                    right: Int,
-                    bottom: Int,
-                    oldLeft: Int,
-                    oldTop: Int,
-                    oldRight: Int,
-                    oldBottom: Int,
-                ) {
-                    if (right <= left || bottom <= top) return
-                    v.removeOnLayoutChangeListener(this)
-                    if (continuation.isActive) continuation.resume(Unit)
+            val listener =
+                object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(
+                        v: View,
+                        left: Int,
+                        top: Int,
+                        right: Int,
+                        bottom: Int,
+                        oldLeft: Int,
+                        oldTop: Int,
+                        oldRight: Int,
+                        oldBottom: Int,
+                    ) {
+                        if (right <= left || bottom <= top) return
+                        v.removeOnLayoutChangeListener(this)
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
                 }
-            }
             view.addOnLayoutChangeListener(listener)
             continuation.invokeOnCancellation { view.removeOnLayoutChangeListener(listener) }
         }
@@ -703,14 +705,14 @@ class ReviewerFragment :
         val selected = WhiteboardPersistence.syncField(sharedPrefs(), target)
         val checked = target.fieldNames.indexOf(selected)
         var chosen = checked
-        AlertDialog.Builder(requireContext())
+        AlertDialog
+            .Builder(requireContext())
             .setTitle(R.string.whiteboard_save_sync)
             .setSingleChoiceItems(target.fieldNames.toTypedArray(), checked) { _, index -> chosen = index }
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 if (chosen !in target.fieldNames.indices) return@setPositiveButton
                 confirmWhiteboardSync(whiteboard, target, target.fieldNames[chosen])
-            }
-            .setNegativeButton(android.R.string.cancel, null)
+            }.setNegativeButton(android.R.string.cancel, null)
             .create()
             .apply {
                 setOnShowListener {
@@ -720,8 +722,7 @@ class ReviewerFragment :
                         getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                     }
                 }
-            }
-            .show()
+            }.show()
     }
 
     private fun confirmWhiteboardSync(
@@ -729,7 +730,8 @@ class ReviewerFragment :
         target: WhiteboardTarget,
         field: String,
     ) {
-        AlertDialog.Builder(requireContext())
+        AlertDialog
+            .Builder(requireContext())
             .setTitle(R.string.whiteboard_save_sync)
             .setMessage(R.string.whiteboard_sync_field_hint)
             .setPositiveButton(R.string.whiteboard_enable_sync) { _, _ ->
@@ -746,8 +748,7 @@ class ReviewerFragment :
                         showSnackbar(getString(R.string.whiteboard_sync_failed, e.localizedMessage ?: "Unknown error"))
                     }
                 }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
+            }.setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
