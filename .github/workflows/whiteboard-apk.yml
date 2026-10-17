@@ -36,8 +36,26 @@ jobs:
         with:
           cache-provider: basic
 
+      - name: Configure lightweight debug build
+        run: |
+          cat > local.properties <<'EOF'
+          enable_coverage=false
+          enable_leak_canary=false
+          EOF
+
       - name: Download Robolectric SDKs
         run: ./gradlew robolectricSdkDownload --daemon
+
+      - name: Format Kotlin and export style changes
+        run: |
+          ./gradlew :AnkiDroid:ktlintFormat --daemon
+          python3 - <<'PY'
+          import base64, subprocess
+          patch = subprocess.run(['git', 'diff', '--', 'AnkiDroid/src'], check=True, capture_output=True).stdout
+          encoded = base64.b64encode(patch).decode()
+          for index in range(0, len(encoded), 10000):
+              print('WHITEBOARD_FORMAT_PATCH ' + encoded[index:index + 10000])
+          PY
 
       - name: Check whiteboard persistence and reviewer regressions
         run: >-

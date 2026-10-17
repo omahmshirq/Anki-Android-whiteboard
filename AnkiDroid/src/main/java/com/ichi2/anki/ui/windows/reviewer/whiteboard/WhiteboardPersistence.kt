@@ -114,6 +114,7 @@ object WhiteboardPersistence {
         preferences: SharedPreferences,
         initiator: Any?,
     ) {
+        if (syncField(preferences, target) == null) return
         applicationScope.launch(Dispatchers.IO) {
             // Coalesce gestures. A dirty draft remains recoverable even if this delay is interrupted
             // by process death, and bind() queues it again when the card is opened.
