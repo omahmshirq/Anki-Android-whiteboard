@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="whiteboard_save_sync">Save and sync drawings…</string>
+    <string name="whiteboard_enable_sync">Enable autosave</string>
+    <string name="whiteboard_stop_sync">Stop syncing this note type</string>
+    <string name="whiteboard_sync_enabled">Drawings will autosave to the selected field. Use Anki sync to upload them.</string>
+    <string name="whiteboard_sync_stopped">Syncing stopped for this note type. Local drawings are still saved.</string>
+    <string name="whiteboard_sync_field_hint">Choose a field displayed on the answer. Existing text is kept. This enables autosave for all cards of this note type and replaces any saved version of this card’s drawing.</string>
+    <string name="whiteboard_sync_failed">Drawing kept on this device; sync failed: %1$s</string>
+    <string name="whiteboard_local_save_failed">Drawing could not be saved. Keep this card open: %1$s</string>
+    <string name="whiteboard_load_failed">Drawing could not be loaded: %1$s</string>
+</resources>

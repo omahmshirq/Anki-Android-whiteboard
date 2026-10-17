@@ -4,6 +4,9 @@ package com.ichi2.anki.ui.windows.reviewer.whiteboard
 
 import android.annotation.SuppressLint
 import android.content.res.ColorStateList
+import android.graphics.Matrix
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.Bundle
@@ -75,6 +78,14 @@ class WhiteboardFragment :
     /** Called when no bindings used the triggered gestures */
     var gestureFallbackListener: ((Gesture) -> Unit)? = null
 
+    /** Configured by the reviewer; multimedia drawing capture keeps its existing behavior. */
+    var onDrawingChanged: ((List<DrawingAction>) -> Unit)? = null
+    var onSaveAndSync: (() -> Unit)? = null
+    var onStopSync: (() -> Unit)? = null
+    private var drawingScale = 1f
+    private var canvasWidth = 1
+    private var canvasHeight = 1
+
     override fun onViewCreated(
         view: View,
         savedInstanceState: Bundle?,
@@ -93,6 +104,7 @@ class WhiteboardFragment :
         binding.whiteboardView.onEraseGestureStart = viewModel::startPathEraseGesture
         binding.whiteboardView.onEraseGestureMove = viewModel::erasePathsToPoint
         binding.whiteboardView.onEraseGestureEnd = viewModel::endPathEraseGesture
+        viewModel.onContentChanged = { actions -> onDrawingChanged?.invoke(actions) }
         binding.whiteboardView.onStylusButtonStateChanged = { isPressed ->
             viewModel.setStylusButtonPressed(isPressed)
             binding.whiteboardView.activeTool = viewModel.activeTool.value
@@ -145,6 +157,8 @@ class WhiteboardFragment :
             val popupMenu = PopupMenu(requireContext(), toolbar.overflowButton)
             requireActivity().menuInflater.inflate(R.menu.whiteboard, popupMenu.menu)
             with(popupMenu.menu) {
+                findItem(R.id.action_whiteboard_save_sync).isVisible = onSaveAndSync != null
+                findItem(R.id.action_whiteboard_stop_sync).isVisible = onStopSync != null
                 findItem(R.id.action_toggle_stylus).isChecked = viewModel.isStylusOnlyMode.value
                 (this as? MenuBuilder)?.setOptionalIconsVisible(true)
                 context?.increaseHorizontalPaddingOfMenuIcons(this)
@@ -444,6 +458,8 @@ class WhiteboardFragment :
     override fun onMenuItemClick(item: MenuItem): Boolean {
         Timber.i("WhiteboardFragment::onMenuItemClick %s", item.title)
         when (item.itemId) {
+            R.id.action_whiteboard_save_sync -> onSaveAndSync?.invoke()
+            R.id.action_whiteboard_stop_sync -> onStopSync?.invoke()
             R.id.action_add_brush -> showAddColorDialog()
             R.id.action_toggle_stylus -> {
                 item.isChecked = !item.isChecked
@@ -469,6 +485,47 @@ class WhiteboardFragment :
     }
 
     fun resetCanvas() = viewModel.reset()
+
+    fun beginLoadingDrawing() {
+        binding.whiteboardView.isEnabled = false
+        binding.whiteboardView.cancelCurrentStroke()
+        viewModel.reset()
+    }
+
+    fun restoreDrawing(document: WhiteboardDocument?) {
+        val whiteboard = binding.whiteboardView
+        canvasWidth = document?.width ?: whiteboard.width
+        canvasHeight = document?.height ?: whiteboard.height
+        drawingScale = minOf(whiteboard.width.toFloat() / canvasWidth, whiteboard.height.toFloat() / canvasHeight)
+        viewModel.restorePaths(document?.actions(whiteboard.width, whiteboard.height) ?: emptyList())
+        // Apply immediately: an initial StateFlow update may not have reached the view yet.
+        whiteboard.setHistory(viewModel.paths.value)
+        whiteboard.isEnabled = true
+    }
+
+    fun drawingActions(): List<DrawingAction> = viewModel.paths.value
+
+    fun captureDrawing(background: Int): WhiteboardDocument {
+        val matrix = Matrix().apply { setScale(1 / drawingScale, 1 / drawingScale) }
+        val bounds = RectF()
+        val actions = viewModel.paths.value.map { action ->
+            val path = Path(action.path).apply { transform(matrix) }
+            path.computeBounds(bounds, true)
+            val strokeWidth = action.strokeWidth / drawingScale
+            canvasWidth = maxOf(canvasWidth, kotlin.math.ceil((bounds.right + strokeWidth).toDouble()).toInt())
+            canvasHeight = maxOf(canvasHeight, kotlin.math.ceil((bounds.bottom + strokeWidth).toDouble()).toInt())
+            action.copy(path = path, strokeWidth = strokeWidth)
+        }
+        return WhiteboardDocument.capture(actions, canvasWidth, canvasHeight, background)
+    }
+
+    override fun onDestroyView() {
+        viewModel.onContentChanged = null
+        onDrawingChanged = null
+        onSaveAndSync = null
+        onStopSync = null
+        super.onDestroyView()
+    }
 
     /**
      * @return whether the whiteboard is completely empty, including the undo and redo stacks.

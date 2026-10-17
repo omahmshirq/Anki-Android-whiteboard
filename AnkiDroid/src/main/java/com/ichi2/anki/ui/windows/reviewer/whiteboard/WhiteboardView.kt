@@ -134,6 +134,7 @@ class WhiteboardView : View {
      * In stylus-only mode, finger input passes through to the card beneath the whiteboard.
      */
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) return false
         if (event.pointerCount >= 2) {
             isDrawing = false
             currentPath.reset()
@@ -298,6 +299,12 @@ class WhiteboardView : View {
     fun setHistory(actions: List<DrawingAction>) {
         history = actions
         redrawHistory()
+    }
+
+    fun cancelCurrentStroke() {
+        currentPath.reset()
+        isDrawing = false
+        invalidate()
     }
 
     /**

@@ -185,6 +185,13 @@ android {
             versionNameSuffix = "-debug"
             isDebuggable = true
             applicationIdSuffix = ".debug"
+            if (project.hasProperty("whiteboardBuild")) {
+                applicationIdSuffix = ".whiteboard"
+                versionNameSuffix = "-whiteboard-debug"
+                resValue("string", "app_name", "AnkiDroid Whiteboard")
+                // A stable test key permits updating this separate app across CI builds.
+                signingConfig = signingConfigs.getByName("release")
+            }
             splits.abi.isUniversalApk = true // Build universal APK for debug always
             // Check Crash Reports page on developer wiki for info on ACRA testing
             // buildConfigField "String", "ACRA_URL", '"https://918f7f55-f238-436c-b34f-c8b5f1331fe5-bluemix.cloudant.com/acra-ankidroid/_design/acra-storage/_update/report"'

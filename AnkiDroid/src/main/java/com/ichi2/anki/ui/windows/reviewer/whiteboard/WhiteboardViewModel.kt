@@ -91,6 +91,8 @@ class WhiteboardViewModel(
     BindingProcessor<ReviewerBinding, WhiteboardAction> {
     // State for drawing history and undo/redo
     val paths = MutableStateFlow<List<DrawingAction>>(emptyList())
+    /** Invoked only for user edits, never for loading another card's drawing. */
+    var onContentChanged: ((List<DrawingAction>) -> Unit)? = null
     private val undoStack = MutableStateFlow<List<UndoableAction>>(emptyList())
     private val redoStack = MutableStateFlow<List<UndoableAction>>(emptyList())
     val canUndo = undoStack.map { it.isNotEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -177,6 +179,7 @@ class WhiteboardViewModel(
         paths.update { it + newAction }
         undoStack.update { it + AddAction(newAction) }
         redoStack.value = emptyList()
+        onContentChanged?.invoke(paths.value)
     }
 
     /**
@@ -297,6 +300,7 @@ class WhiteboardViewModel(
             undoStack.update { it + action }
             redoStack.value = emptyList()
             pathsErasedInCurrentGesture.clear()
+            onContentChanged?.invoke(paths.value)
         }
     }
 
@@ -326,6 +330,7 @@ class WhiteboardViewModel(
                 paths.update { it + lastAction.cleared }
             }
         }
+        onContentChanged?.invoke(paths.value)
     }
 
     /**
@@ -349,6 +354,7 @@ class WhiteboardViewModel(
                 paths.value = emptyList()
             }
         }
+        onContentChanged?.invoke(paths.value)
     }
 
     /**
@@ -360,6 +366,7 @@ class WhiteboardViewModel(
             undoStack.update { it + action }
             redoStack.value = emptyList()
             paths.value = emptyList()
+            onContentChanged?.invoke(paths.value)
         }
     }
 
@@ -551,9 +558,16 @@ class WhiteboardViewModel(
      * Clear the canvas and the undo/redo states
      */
     fun reset() {
-        clearCanvas()
+        restorePaths(emptyList())
+    }
+
+    /** Loading must not be recorded as an edit or added to another card's undo history. */
+    fun restorePaths(actions: List<DrawingAction>) {
+        paths.value = actions
         undoStack.value = emptyList()
         redoStack.value = emptyList()
+        pathsBeforeGesture = emptyList()
+        pathsErasedInCurrentGesture.clear()
     }
 
     override fun processAction(

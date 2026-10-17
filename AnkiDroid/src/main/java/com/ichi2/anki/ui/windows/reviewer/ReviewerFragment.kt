@@ -4,6 +4,7 @@ package com.ichi2.anki.ui.windows.reviewer
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
@@ -72,7 +73,11 @@ import com.ichi2.anki.snackbar.BaseSnackbarBuilderProvider
 import com.ichi2.anki.snackbar.SnackbarBuilder
 import com.ichi2.anki.snackbar.showSnackbar
 import com.ichi2.anki.ui.windows.reviewer.audiorecord.CheckPronunciationFragment
+import com.ichi2.anki.ui.windows.reviewer.whiteboard.WhiteboardBinding
+import com.ichi2.anki.ui.windows.reviewer.whiteboard.WhiteboardDraftStore
 import com.ichi2.anki.ui.windows.reviewer.whiteboard.WhiteboardFragment
+import com.ichi2.anki.ui.windows.reviewer.whiteboard.WhiteboardPersistence
+import com.ichi2.anki.ui.windows.reviewer.whiteboard.WhiteboardTarget
 import com.ichi2.anki.utils.CollectionPreferences
 import com.ichi2.anki.utils.ext.collectIn
 import com.ichi2.anki.utils.ext.collectLatestIn
@@ -87,12 +92,16 @@ import com.ichi2.utils.dp
 import com.ichi2.utils.show
 import com.squareup.seismic.ShakeDetector
 import dev.androidbroadcast.vbpd.viewBinding
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import timber.log.Timber
+import java.io.File
+import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -116,6 +125,12 @@ class ReviewerFragment :
     private lateinit var reviewerWebViewClient: ReviewerWebViewClient
     private var shakeDetector: AnkiShakeDetector? = null
     private val whiteboardFragment get() = childFragmentManager.findFragmentByTag(WhiteboardFragment::class.jvmName) as? WhiteboardFragment
+    private val whiteboardDraftStore by lazy {
+        WhiteboardDraftStore(File(requireContext().applicationContext.filesDir, "whiteboard-drafts"))
+    }
+    private var whiteboardBindingJob: Job? = null
+    private var whiteboardBindingEpoch = 0L
+    private var activeWhiteboardBinding: WhiteboardBinding? = null
     private val isBigScreen: Boolean get() = resources.configuration.smallestScreenWidthDp >= 720
 
     override val baseSnackbarBuilder: SnackbarBuilder = {
@@ -569,14 +584,12 @@ class ReviewerFragment :
                     v: View,
                     savedInstanceState: Bundle?,
                 ) {
-                    if (f !is WhiteboardFragment) return
-                    f.setOnScrollByListener { y ->
-                        webViewLayout.scrollVerticallyBy(y)
-                    }
+                    if (f is WhiteboardFragment) bindWhiteboard(f)
                 }
             },
             false,
         )
+        whiteboardFragment?.takeIf { it.view != null }?.let(::bindWhiteboard)
 
         viewModel.whiteboardEnabledFlow.flowWithLifecycle(lifecycle).collectIn(lifecycleScope) { isEnabled ->
             val existingFragment = whiteboardFragment
@@ -585,9 +598,7 @@ class ReviewerFragment :
                     if (existingFragment != null) {
                         show(existingFragment)
                     } else {
-                        val newFragment = WhiteboardFragment()
-                        newFragment.gestureFallbackListener = { gesture -> bindingMap.onGesture(gesture) }
-                        add(R.id.web_view_container, newFragment, WhiteboardFragment::class.jvmName)
+                        add(R.id.web_view_container, WhiteboardFragment(), WhiteboardFragment::class.jvmName)
                     }
                 } else {
                     existingFragment?.let { hide(it) }
@@ -595,8 +606,149 @@ class ReviewerFragment :
             }
         }
         viewModel.onCardUpdatedFlow.collectIn(lifecycleScope) {
-            whiteboardFragment?.resetCanvas()
+            whiteboardFragment?.takeIf { it.view != null }?.let(::bindWhiteboard)
         }
+        WhiteboardPersistence.errors.collectIn(viewLifecycleOwner.lifecycleScope) { error ->
+            if (activeWhiteboardBinding?.target?.mediaDirectory == error.target.mediaDirectory) {
+                showSnackbar(getString(R.string.whiteboard_sync_failed, error.message))
+            }
+        }
+    }
+
+    private fun bindWhiteboard(whiteboard: WhiteboardFragment) {
+        whiteboardBindingJob?.cancel()
+        val epoch = ++whiteboardBindingEpoch
+        activeWhiteboardBinding = null
+        whiteboard.onDrawingChanged = null
+        whiteboard.onSaveAndSync = null
+        whiteboard.onStopSync = null
+        whiteboard.beginLoadingDrawing()
+        whiteboard.gestureFallbackListener = { gesture -> bindingMap.onGesture(gesture) }
+        whiteboard.setOnScrollByListener { y -> webViewLayout.scrollVerticallyBy(y) }
+        // Capture the Deferred before suspending. A later card must never inherit an earlier load.
+        val card = viewModel.currentCard
+        whiteboardBindingJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val loaded = WhiteboardPersistence.bind(card.await(), whiteboardDraftStore)
+                awaitWhiteboardLayout(whiteboard.binding.whiteboardView)
+                if (epoch == whiteboardBindingEpoch && whiteboard.view != null) {
+                    activeWhiteboardBinding = loaded
+                    whiteboard.restoreDrawing(loaded.draft?.document)
+                    whiteboard.onDrawingChanged = { persistWhiteboard(whiteboard, loaded.target) }
+                    whiteboard.onSaveAndSync = { chooseWhiteboardSyncField(whiteboard, loaded.target) }
+                    whiteboard.onStopSync = {
+                        WhiteboardPersistence.stopSync(sharedPrefs(), loaded.target)
+                        showSnackbar(R.string.whiteboard_sync_stopped)
+                    }
+                    if (loaded.draft?.dirty == true) {
+                        WhiteboardPersistence.enqueue(loaded.target, whiteboardDraftStore, sharedPrefs(), viewModel)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Could not restore whiteboard")
+                if (epoch == whiteboardBindingEpoch && view != null) {
+                    showSnackbar(getString(R.string.whiteboard_load_failed, e.localizedMessage ?: "Unknown error"))
+                }
+            }
+        }
+    }
+
+    private suspend fun awaitWhiteboardLayout(view: View) {
+        if (view.isLaidOut && view.width > 0 && view.height > 0) return
+        suspendCancellableCoroutine<Unit> { continuation ->
+            val listener = object : View.OnLayoutChangeListener {
+                override fun onLayoutChange(
+                    v: View,
+                    left: Int,
+                    top: Int,
+                    right: Int,
+                    bottom: Int,
+                    oldLeft: Int,
+                    oldTop: Int,
+                    oldRight: Int,
+                    oldBottom: Int,
+                ) {
+                    if (right <= left || bottom <= top) return
+                    v.removeOnLayoutChangeListener(this)
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+            }
+            view.addOnLayoutChangeListener(listener)
+            continuation.invokeOnCancellation { view.removeOnLayoutChangeListener(listener) }
+        }
+    }
+
+    private fun persistWhiteboard(
+        whiteboard: WhiteboardFragment,
+        target: WhiteboardTarget,
+    ): Boolean =
+        try {
+            val background = if (Themes.isNightTheme) Color.BLACK else Color.WHITE
+            whiteboardDraftStore.save(target, whiteboard.captureDrawing(background))
+            WhiteboardPersistence.enqueue(target, whiteboardDraftStore, sharedPrefs(), viewModel)
+            true
+        } catch (e: Exception) {
+            Timber.w(e, "Could not save whiteboard draft")
+            showSnackbar(getString(R.string.whiteboard_local_save_failed, e.localizedMessage ?: "Unknown error"))
+            false
+        }
+
+    private fun chooseWhiteboardSyncField(
+        whiteboard: WhiteboardFragment,
+        target: WhiteboardTarget,
+    ) {
+        viewModel.stopAutoAdvance()
+        val selected = WhiteboardPersistence.syncField(sharedPrefs(), target)
+        val checked = target.fieldNames.indexOf(selected)
+        var chosen = checked
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.whiteboard_save_sync)
+            .setSingleChoiceItems(target.fieldNames.toTypedArray(), checked) { _, index -> chosen = index }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (chosen !in target.fieldNames.indices) return@setPositiveButton
+                confirmWhiteboardSync(whiteboard, target, target.fieldNames[chosen])
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .apply {
+                setOnShowListener {
+                    getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = chosen in target.fieldNames.indices
+                    listView.setOnItemClickListener { _, _, position, _ ->
+                        chosen = position
+                        getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun confirmWhiteboardSync(
+        whiteboard: WhiteboardFragment,
+        target: WhiteboardTarget,
+        field: String,
+    ) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.whiteboard_save_sync)
+            .setMessage(R.string.whiteboard_sync_field_hint)
+            .setPositiveButton(R.string.whiteboard_enable_sync) { _, _ ->
+                // The dialog belongs to the captured card. Do not save a new card under its key.
+                if (activeWhiteboardBinding?.target != target || !persistWhiteboard(whiteboard, target)) return@setPositiveButton
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        WhiteboardPersistence.enableSync(sharedPrefs(), target, field, whiteboardDraftStore)
+                        WhiteboardPersistence.enqueue(target, whiteboardDraftStore, sharedPrefs(), viewModel)
+                        showSnackbar(R.string.whiteboard_sync_enabled)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        showSnackbar(getString(R.string.whiteboard_sync_failed, e.localizedMessage ?: "Unknown error"))
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun setupTimebox() {

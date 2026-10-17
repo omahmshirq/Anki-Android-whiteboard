@@ -4,6 +4,14 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_whiteboard_save_sync"
+        android:title="@string/whiteboard_save_sync"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_whiteboard_stop_sync"
+        android:title="@string/whiteboard_stop_sync"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_add_brush"
         android:title="@string/add_brush"
         android:icon="@drawable/ic_add"
