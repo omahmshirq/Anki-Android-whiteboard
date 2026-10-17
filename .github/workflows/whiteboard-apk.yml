@@ -47,20 +47,8 @@ jobs:
       - name: Download Robolectric SDKs
         run: ./gradlew robolectricSdkDownload --daemon
 
-      - name: Format Kotlin and export style changes
-        run: |
-          ./gradlew :AnkiDroid:ktlintFormat --daemon || format_status=$?
-          python3 - <<'PY'
-          import base64, subprocess
-          patch = subprocess.run(
-              ['git', 'diff', '--', 'AnkiDroid/src', 'AnkiDroid/build.gradle.kts'],
-              check=True, capture_output=True,
-          ).stdout
-          encoded = base64.b64encode(patch).decode()
-          for index in range(0, len(encoded), 10000):
-              print('WHITEBOARD_FORMAT_PATCH ' + encoded[index:index + 10000])
-          PY
-          exit "${format_status:-0}"
+      - name: Check Kotlin formatting
+        run: ./gradlew :AnkiDroid:ktlintCheck --daemon
 
       - name: Check whiteboard persistence and reviewer regressions
         run: >-
@@ -70,13 +58,34 @@ jobs:
           --tests 'com.ichi2.anki.ui.windows.reviewer.ReviewerWhiteboardGestureTest'
 
       - name: Build separate universal test APK
-        run: ./gradlew :AnkiDroid:assembleFullDebug -PwhiteboardBuild --daemon
+        run: ./gradlew :AnkiDroid:assembleFullDebug -PwhiteboardBuild -Duniversal-apk=true --daemon
+
+      - name: Select universal whiteboard APK
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, shutil
+          outputs = pathlib.Path('AnkiDroid/build/outputs/apk')
+          candidates = []
+          for metadata_path in outputs.rglob('output-metadata.json'):
+              metadata = json.loads(metadata_path.read_text())
+              if metadata.get('variantName') != 'fullDebug':
+                  continue
+              assert metadata['applicationId'] == 'com.ichi2.anki.whiteboard', metadata
+              for element in metadata['elements']:
+                  if not element.get('filters'):
+                      candidates.append(metadata_path.parent / element['outputFile'])
+          assert len(candidates) == 1, f'Expected one universal APK, found {candidates}'
+          destination = pathlib.Path('whiteboard-apk/AnkiDroid-Whiteboard.apk')
+          destination.parent.mkdir(exist_ok=True)
+          shutil.copy2(candidates[0], destination)
+          print(f'Packaged {candidates[0]} ({destination.stat().st_size} bytes)')
+          PY
 
       - name: Upload installable APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: AnkiDroid-Whiteboard-APK
-          path: AnkiDroid/build/outputs/apk/full/debug/*universal*.apk
+          path: whiteboard-apk/AnkiDroid-Whiteboard.apk
           if-no-files-found: error
           retention-days: 30
 
